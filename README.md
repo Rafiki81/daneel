@@ -1,9 +1,9 @@
 # Daneel
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/daneel-ai/daneel.svg)](https://pkg.go.dev/github.com/daneel-ai/daneel)
-[![Go Report Card](https://goreportcard.com/badge/github.com/daneel-ai/daneel)](https://goreportcard.com/report/github.com/daneel-ai/daneel)
+[![Go Reference](https://pkg.go.dev/badge/github.com/Rafiki81/daneel.svg)](https://pkg.go.dev/github.com/Rafiki81/daneel)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Rafiki81/daneel)](https://goreportcard.com/report/github.com/Rafiki81/daneel)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Build](https://github.com/daneel-ai/daneel/actions/workflows/ci.yml/badge.svg)](https://github.com/daneel-ai/daneel/actions)
+[![Build](https://github.com/Rafiki81/daneel/actions/workflows/ci.yml/badge.svg)](https://github.com/Rafiki81/daneel/actions)
 
 > *"The Laws of Robotics are not suggestions." — R. Daneel Olivaw*
 
@@ -32,7 +32,7 @@ Zero external dependencies — just the Go standard library.
 ## Installation
 
 ```sh
-go get github.com/daneel-ai/daneel
+go get github.com/Rafiki81/daneel
 ```
 
 Requires **Go 1.24+**.
@@ -50,7 +50,7 @@ import (
     "log"
     "strings"
 
-    "github.com/daneel-ai/daneel"
+    "github.com/Rafiki81/daneel"
 )
 
 type WeatherParams struct {
@@ -107,72 +107,72 @@ func main() {
 ### Core
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel` | Agent, Tool, Run, RunResult, Registry, Connector |
-| `github.com/daneel-ai/daneel/content` | Multi-modal content types (text, image, file) |
-| `github.com/daneel-ai/daneel/approval` | Human-in-the-loop approval for tool calls |
-| `github.com/daneel-ai/daneel/bridge` | Point-to-point agent bridging |
+| `github.com/Rafiki81/daneel` | Agent, Tool, Run, RunResult, Registry, Connector |
+| `github.com/Rafiki81/daneel/content` | Multi-modal content types (text, image, file) |
+| `github.com/Rafiki81/daneel/approval` | Human-in-the-loop approval for tool calls |
+| `github.com/Rafiki81/daneel/bridge` | Point-to-point agent bridging |
 
 ### Providers
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/provider/openai` | OpenAI (GPT-4o, o1, …) |
-| `github.com/daneel-ai/daneel/provider/anthropic` | Anthropic (Claude 3.x, …) |
-| `github.com/daneel-ai/daneel/provider/google` | Google Gemini |
-| `github.com/daneel-ai/daneel/provider/ollama` | Ollama (local models) |
+| `github.com/Rafiki81/daneel/provider/openai` | OpenAI (GPT-4o, o1, …) |
+| `github.com/Rafiki81/daneel/provider/anthropic` | Anthropic (Claude 3.x, …) |
+| `github.com/Rafiki81/daneel/provider/google` | Google Gemini |
+| `github.com/Rafiki81/daneel/provider/ollama` | Ollama (local models) |
 
 ### Memory
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/memory` | Sliding-window + summary memory |
-| `github.com/daneel-ai/daneel/memory/store` | In-memory vector store |
-| `github.com/daneel-ai/daneel/session` | Persistent session store (memory, file) |
+| `github.com/Rafiki81/daneel/memory` | Sliding-window + summary memory |
+| `github.com/Rafiki81/daneel/memory/store` | In-memory vector store |
+| `github.com/Rafiki81/daneel/session` | Persistent session store (memory, file) |
 
 ### Workflows
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/workflow` | Chain, parallel, router, orchestrator, FSM |
+| `github.com/Rafiki81/daneel/workflow` | Chain, parallel, router, orchestrator, FSM |
 
 ### Platforms & Connectors
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/platform/slack` | Slack client & tools |
-| `github.com/daneel-ai/daneel/platform/telegram` | Telegram client & tools |
-| `github.com/daneel-ai/daneel/platform/twitter` | Twitter/X client & tools |
-| `github.com/daneel-ai/daneel/platform/whatsapp` | WhatsApp client & tools |
-| `github.com/daneel-ai/daneel/platform/github` | GitHub client & tools |
-| `github.com/daneel-ai/daneel/platform/email` | Email client & tools |
-| `github.com/daneel-ai/daneel/connector/*` | High-level connectors for each platform |
-| `github.com/daneel-ai/daneel/ws` | WebSocket server and connector (stdlib only) |
+| `github.com/Rafiki81/daneel/platform/slack` | Slack client & tools |
+| `github.com/Rafiki81/daneel/platform/telegram` | Telegram client & tools |
+| `github.com/Rafiki81/daneel/platform/twitter` | Twitter/X client & tools |
+| `github.com/Rafiki81/daneel/platform/whatsapp` | WhatsApp client & tools |
+| `github.com/Rafiki81/daneel/platform/github` | GitHub client & tools |
+| `github.com/Rafiki81/daneel/platform/email` | Email client & tools |
+| `github.com/Rafiki81/daneel/connector/*` | High-level connectors for each platform |
+| `github.com/Rafiki81/daneel/ws` | WebSocket server and connector (stdlib only) |
 
 ### Protocols
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/mcp` | Model Context Protocol client & server |
+| `github.com/Rafiki81/daneel/mcp` | Model Context Protocol client & server |
 
 ### Knowledge & Scheduling
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/knowledge` | Document ingestion, chunking, RAG retrieval |
-| `github.com/daneel-ai/daneel/cron` | Cron-style scheduled agent runs |
+| `github.com/Rafiki81/daneel/knowledge` | Document ingestion, chunking, RAG retrieval |
+| `github.com/Rafiki81/daneel/cron` | Cron-style scheduled agent runs |
 
 ### Experimentation
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/experiment` | A/B testing, LLM-as-judge, metrics |
-| `github.com/daneel-ai/daneel/finetune` | Fine-tune dataset collection & evaluation |
+| `github.com/Rafiki81/daneel/experiment` | A/B testing, LLM-as-judge, metrics |
+| `github.com/Rafiki81/daneel/finetune` | Fine-tune dataset collection & evaluation |
 
 ### Operations
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/tenant` | Multi-tenant quota management & scoped sessions |
-| `github.com/daneel-ai/daneel/billing` | Cost tracking, pricing tables, budget alerts |
-| `github.com/daneel-ai/daneel/pubsub` | Publish/subscribe message bus with agent tools |
-| `github.com/daneel-ai/daneel/trace` | OpenTelemetry tracing and metrics |
+| `github.com/Rafiki81/daneel/tenant` | Multi-tenant quota management & scoped sessions |
+| `github.com/Rafiki81/daneel/billing` | Cost tracking, pricing tables, budget alerts |
+| `github.com/Rafiki81/daneel/pubsub` | Publish/subscribe message bus with agent tools |
+| `github.com/Rafiki81/daneel/trace` | OpenTelemetry tracing and metrics |
 
 ### CLI
 | Package | Description |
 |---|---|
-| `github.com/daneel-ai/daneel/cmd/daneel` | CLI — `agents`, `tools`, `run`, `listen`, `finetune` |
+| `github.com/Rafiki81/daneel/cmd/daneel` | CLI — `agents`, `tools`, `run`, `listen`, `finetune` |
 
 ---
 
@@ -181,7 +181,7 @@ func main() {
 Install the `daneel` binary:
 
 ```sh
-go install github.com/daneel-ai/daneel/cmd/daneel@latest
+go install github.com/Rafiki81/daneel/cmd/daneel@latest
 ```
 
 ```
@@ -199,7 +199,7 @@ daneel finetune --dataset data.jsonl --base gpt-4o
 ## Multi-Agent Workflow Example
 
 ```go
-import "github.com/daneel-ai/daneel/workflow"
+import "github.com/Rafiki81/daneel/workflow"
 
 result, err := workflow.Chain(ctx, input,
     researchAgent,
