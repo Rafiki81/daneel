@@ -10,7 +10,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Server exposes daneel Tools as an MCP-compatible server.

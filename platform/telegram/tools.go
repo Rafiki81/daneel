@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Tools returns all Telegram tools for an agent.

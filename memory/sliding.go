@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Sliding returns a Memory that keeps the last n non-system messages per

@@ -4,7 +4,7 @@ package experiment
 import (
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Metric names for ABTest and Evaluate options.

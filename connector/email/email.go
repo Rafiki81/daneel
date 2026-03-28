@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Connector implements daneel.Connector for email using IMAP IDLE.

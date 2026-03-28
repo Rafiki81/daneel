@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Format specifies the output format for training data.

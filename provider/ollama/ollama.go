@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Option configures the Ollama provider.

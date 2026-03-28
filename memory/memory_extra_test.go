@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/memory"
-	"github.com/daneel-ai/daneel/memory/store"
-	"github.com/daneel-ai/daneel/provider/mock"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/memory"
+	"github.com/Rafiki81/daneel/memory/store"
+	"github.com/Rafiki81/daneel/provider/mock"
 )
 
 // ========== Summary Memory ==========

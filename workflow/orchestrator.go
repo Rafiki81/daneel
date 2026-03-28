@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Orchestrator implements a boss/worker pattern. The boss agent decomposes the

@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/provider/mock"
-	"github.com/daneel-ai/daneel/workflow"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/provider/mock"
+	"github.com/Rafiki81/daneel/workflow"
 )
 
 // ---------- Chain ----------

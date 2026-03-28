@@ -3,7 +3,7 @@ package content_test
 import (
 	"testing"
 
-	"github.com/daneel-ai/daneel/content"
+	"github.com/Rafiki81/daneel/content"
 )
 
 func TestTextContent(t *testing.T) {

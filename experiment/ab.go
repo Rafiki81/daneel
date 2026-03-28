@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // RunPair holds results from a single A/B run.

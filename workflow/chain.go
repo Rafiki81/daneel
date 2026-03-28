@@ -11,7 +11,7 @@ import (
 	"context"
 	"fmt"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Chain runs agents sequentially, passing the output of each as input to the

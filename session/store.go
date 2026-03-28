@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Metadata holds information about a persisted session.

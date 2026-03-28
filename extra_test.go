@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/content"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/content"
 )
 
 // ---------- Tool schema: advanced types ----------

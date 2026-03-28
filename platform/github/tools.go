@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Tools returns all GitHub tools ready to register with an agent.

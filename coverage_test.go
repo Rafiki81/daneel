@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/content"
-	"github.com/daneel-ai/daneel/provider/mock"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/content"
+	"github.com/Rafiki81/daneel/provider/mock"
 )
 
 // ========== Registry ==========

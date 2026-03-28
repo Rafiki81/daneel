@@ -3,7 +3,7 @@ package tenant
 import (
 	"context"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // WithTenant returns a RunOption that:

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // KnownModels maps Anthropic model names to their capabilities.

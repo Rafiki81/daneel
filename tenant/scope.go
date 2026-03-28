@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // ScopedSessionStore wraps a daneel.SessionStore, prefixing every session ID

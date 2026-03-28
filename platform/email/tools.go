@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Tools returns email tools for an agent.

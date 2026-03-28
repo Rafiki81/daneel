@@ -8,7 +8,7 @@ package daneel
 import (
 	"encoding/json"
 
-	"github.com/daneel-ai/daneel/content"
+	"github.com/Rafiki81/daneel/content"
 )
 
 // Role represents the role of a message participant.

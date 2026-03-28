@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // fsmConfig holds all configuration for an FSM.

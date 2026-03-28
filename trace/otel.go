@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // OTELTracer implements daneel.Tracer using the daneel.Span interface.

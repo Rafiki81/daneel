@@ -11,7 +11,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Connector is a mock implementation of daneel.Connector for testing.

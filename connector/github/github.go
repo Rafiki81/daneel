@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Connector implements daneel.Connector for GitHub using webhook HTTP server or polling.

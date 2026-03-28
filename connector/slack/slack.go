@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Connector implements daneel.Connector for Slack using Socket Mode polling fallback.

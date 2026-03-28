@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daneel-ai/daneel/content"
+	"github.com/Rafiki81/daneel/content"
 )
 
 // ToolDef is the subset of Tool sent to the LLM provider.

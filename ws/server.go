@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Server is a WebSocket server that connects clients directly to a daneel Agent.

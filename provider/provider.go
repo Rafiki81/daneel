@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"sync/atomic"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Fallback returns a Provider that tries each provider in order and returns

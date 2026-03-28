@@ -3,7 +3,7 @@ package workflow
 import (
 	"context"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Transition defines an edge in the FSM: when event is matched in the agent's

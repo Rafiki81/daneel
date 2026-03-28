@@ -9,7 +9,7 @@ import (
 	"sort"
 	"sync"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // entry is a single vector stored locally.

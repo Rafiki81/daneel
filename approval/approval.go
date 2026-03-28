@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // AutoApprove returns an Approver that automatically approves every tool call.

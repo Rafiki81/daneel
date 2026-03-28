@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // SummaryOption configures the Summary memory.

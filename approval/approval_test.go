@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/approval"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/approval"
 )
 
 func req(tool string) daneel.ApprovalRequest {

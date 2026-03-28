@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/daneel-ai/daneel/content"
+	"github.com/Rafiki81/daneel/content"
 )
 
 // --- Provider interface (defined in root package, not provider/) ---

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Tracker records costs for every agent run and enforces per-tenant budgets.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Route maps a label to an agent. The triage agent's output is matched against

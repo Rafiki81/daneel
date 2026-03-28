@@ -22,7 +22,7 @@ import (
 	"strconv"
 	"time"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // KnownModels maps model names to their capabilities. Looked up from

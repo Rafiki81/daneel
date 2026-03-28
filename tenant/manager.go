@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // tenantEntry holds the mutable state for a single tenant.

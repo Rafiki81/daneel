@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // VectorOption configures the Vector memory.

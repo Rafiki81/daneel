@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // Task represents a single unit of parallel work.

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/finetune"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/finetune"
 )
 
 // helper to build a RunResult with messages

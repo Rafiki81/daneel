@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Provider is a mock LLM provider that returns pre-configured responses.

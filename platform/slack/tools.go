@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 func Tools(botToken string, opts ...Option) []daneel.Tool {

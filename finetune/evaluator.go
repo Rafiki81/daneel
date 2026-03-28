@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // MetricType defines evaluation metrics.

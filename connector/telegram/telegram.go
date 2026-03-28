@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Connector implements daneel.Connector for Telegram using long-polling.

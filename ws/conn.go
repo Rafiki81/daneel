@@ -11,7 +11,7 @@ import (
 	"net"
 	"sync"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // ─── WebSocket framing (RFC 6455) ────────────────────────────────────────────

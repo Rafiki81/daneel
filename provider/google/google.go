@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	daneel "github.com/daneel-ai/daneel"
+	daneel "github.com/Rafiki81/daneel"
 )
 
 // SafetySetting controls content safety filtering.

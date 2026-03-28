@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/daneel-ai/daneel"
-	"github.com/daneel-ai/daneel/finetune"
-	"github.com/daneel-ai/daneel/provider/mock"
+	"github.com/Rafiki81/daneel"
+	"github.com/Rafiki81/daneel/finetune"
+	"github.com/Rafiki81/daneel/provider/mock"
 )
 
 // ========== Evaluator Option functions ==========

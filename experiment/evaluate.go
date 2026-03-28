@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // Candidate pairs a name with an agent for batch evaluation.

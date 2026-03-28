@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/daneel-ai/daneel"
+	"github.com/Rafiki81/daneel"
 )
 
 // WSConnector implements daneel.Connector, making a WebSocket server available

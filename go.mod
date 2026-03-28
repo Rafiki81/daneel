@@ -1,3 +1,3 @@
-module github.com/daneel-ai/daneel
+module github.com/Rafiki81/daneel
 
 go 1.24.0
