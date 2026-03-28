@@ -1,0 +1,29 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  daneel:
+    build: .
+    container_name: daneel
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      # Configure the default Ollama model at runtime
+      - DANEEL_MODEL=${DANEEL_MODEL:-llama3.2}
+    network_mode: host
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

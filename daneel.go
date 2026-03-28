@@ -139,7 +139,8 @@ func validateSchemaConstraints(dataJSON []byte, schema json.RawMessage) []string
 
 // resolveProvider ensures the agent has a provider. If the agent was configured
 // with WithModel/WithOpenAI/WithOllama/WithLocalAI, the built-in minimal
-// client is used.
+// client is used. Falls back to a local Ollama instance when OPENAI_API_KEY
+// is not set and Ollama is reachable.
 func resolveProvider(agent *Agent) *Agent {
 	if agent.config.provider != nil {
 		return agent
@@ -147,11 +148,30 @@ func resolveProvider(agent *Agent) *Agent {
 	if agent.config.model == "" {
 		return agent
 	}
-	// Use built-in minimal OpenAI-compat client
+	// Prefer OPENAI_API_KEY when present
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		cp := agent.clone()
+		cp.config.provider = &miniClient{
+			baseURL: "https://api.openai.com/v1",
+			apiKey:  key,
+			model:   agent.config.model,
+		}
+		return cp
+	}
+	// Auto-detect local Ollama as fallback
+	if ollamaAvailable() {
+		cp := agent.clone()
+		cp.config.provider = &miniClient{
+			baseURL: "http://localhost:11434/v1",
+			model:   agent.config.model,
+		}
+		return cp
+	}
+	// Fall back to OpenAI (will fail with auth error if no key, but that's
+	// the expected behaviour — surfacing a clear error to the user).
 	cp := agent.clone()
 	cp.config.provider = &miniClient{
 		baseURL: "https://api.openai.com/v1",
-		apiKey:  os.Getenv("OPENAI_API_KEY"),
 		model:   agent.config.model,
 	}
 	return cp
@@ -209,6 +229,42 @@ func WithLocalAI(model string) AgentOption {
 			model:   model,
 		}
 	}
+}
+
+// WithLocalStack configures an agent for fully local operation using Ollama:
+// the OpenAI-compat endpoint for chat and the native /api/embed endpoint for
+// embeddings. embedModel defaults to "nomic-embed-text" when empty.
+//
+//	daneel.New("local",
+//	    daneel.WithLocalStack("llama3.3:70b", "nomic-embed-text"),
+//	)
+func WithLocalStack(model, embedModel string) AgentOption {
+	if embedModel == "" {
+		embedModel = "nomic-embed-text"
+	}
+	return func(c *agentConfig) {
+		c.model = model
+		c.provider = &miniClient{
+			baseURL: "http://localhost:11434/v1",
+			model:   model,
+		}
+		c.embedder = &miniEmbedder{
+			baseURL: "http://localhost:11434",
+			model:   embedModel,
+		}
+	}
+}
+
+// ollamaAvailable probes the local Ollama server. Returns true when
+// http://localhost:11434/api/version responds with 200 within 500 ms.
+func ollamaAvailable() bool {
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Get("http://localhost:11434/api/version")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 // --- QuickAgent ---
@@ -296,6 +352,58 @@ type miniResponse struct {
 	Error *struct {
 		Message string `json:"message"`
 	} `json:"error"`
+}
+
+// miniEmbedder implements Embedder via Ollama's /api/embed endpoint.
+// Used by WithLocalStack to avoid importing provider/ollama (circular).
+type miniEmbedder struct {
+	baseURL string
+	model   string
+	client  http.Client
+}
+
+type miniEmbedRequest struct {
+	Model string `json:"model"`
+	Input string `json:"input"`
+}
+
+type miniEmbedResponse struct {
+	Embeddings [][]float32 `json:"embeddings"`
+}
+
+func (e *miniEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	body, err := json.Marshal(miniEmbedRequest{Model: e.model, Input: text})
+	if err != nil {
+		return nil, fmt.Errorf("daneel: marshal embed request: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, "POST", e.baseURL+"/api/embed", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("daneel: create embed request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := e.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("daneel: embed HTTP request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("daneel: read embed response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("daneel: ollama /api/embed status %d: %s", resp.StatusCode, respBody)
+	}
+
+	var result miniEmbedResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("daneel: unmarshal embed response: %w", err)
+	}
+	if len(result.Embeddings) == 0 {
+		return nil, fmt.Errorf("daneel: ollama returned empty embeddings")
+	}
+	return result.Embeddings[0], nil
 }
 
 func (mc *miniClient) Chat(ctx context.Context, messages []Message, tools []ToolDef) (*Response, error) {

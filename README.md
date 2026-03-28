@@ -23,7 +23,9 @@ Zero external dependencies — just the Go standard library.
 | **Multi-agent** | Chain, parallel, router, orchestrator, FSM workflows — **max handoff depth** protection |
 | **Platforms** | Slack, Telegram, Twitter/X, WhatsApp, GitHub, Email |
 | **Protocols** | Model Context Protocol (MCP) client & server, WebSocket connector |
-| **Observability** | OpenTelemetry tracing & metrics, fine-tune dataset collection |
+| **Observability** | OpenTelemetry tracing & metrics, `bridge.BridgeMetrics` interface, fine-tune dataset collection |
+| **Local AI** | `WithLocalStack` auto-detects Ollama, `ollama.NewEmbedder` for local embeddings, zero-config offline mode |
+| **Docker** | Multi-stage distroless `Dockerfile`, `docker-compose.yml` (Ollama + Daneel), `daneel doctor` health check |
 | **Operations** | Multi-tenant quotas (scoped sessions), billing / cost tracking, budget alerts, cron scheduling |
 | **Resiliencia** | Circuit breaker, fail-fast tool strategy (`WithFailFast`), composable run hooks |
 | **Config** | JSON config loading (`LoadConfig`), `${ENV}` expansion, `BuildAgents` / `BuildPlatforms` |
@@ -106,6 +108,55 @@ func main() {
 
 ---
 
+## Local-First AI
+
+Daneel auto-detects a local [Ollama](https://ollama.com) instance and falls back to it
+when no `OPENAI_API_KEY` is set:
+
+```go
+// Explicit local stack — uses Ollama for chat + embeddings
+agent := daneel.New("assistant",
+    daneel.WithLocalStack("llama3.2", "nomic-embed-text"),
+)
+
+// Auto-detect (no OPENAI_API_KEY → tries Ollama at localhost:11434)
+result, err := daneel.Run(ctx, agent, "Hello")
+```
+
+For embeddings only:
+
+```go
+import "github.com/Rafiki81/daneel/provider/ollama"
+
+e := ollama.NewEmbedder(ollama.EmbedModel("nomic-embed-text"))
+vec, err := e.Embed(ctx, "semantic search query")
+```
+
+Check your local stack health with:
+
+```sh
+daneel doctor
+```
+
+---
+
+## Docker & Deployment
+
+A production-ready multi-stage image is included:
+
+```sh
+# Build the image
+docker build -t daneel .
+
+# Run Daneel + Ollama together
+docker compose up
+```
+
+The `Dockerfile` uses `golang:1.24-alpine` builder → `gcr.io/distroless/static-debian12:nonroot`
+for a minimal, non-root runtime image.
+
+---
+
 ## Package Index
 
 ### Core
@@ -177,7 +228,7 @@ func main() {
 ### CLI
 | Package | Description |
 |---|---|
-| `github.com/Rafiki81/daneel/cmd/daneel` | CLI — `agents`, `tools`, `run`, `listen`, `finetune` |
+| `github.com/Rafiki81/daneel/cmd/daneel` | CLI — `agents`, `tools`, `run`, `listen`, `finetune`, `doctor` |
 
 ---
 
@@ -197,6 +248,8 @@ daneel run <agent> "prompt"     # run an agent once
 daneel run <agent>              # interactive REPL
 daneel listen --slack           # start Slack listener
 daneel finetune --dataset data.jsonl --base gpt-4o
+daneel doctor                   # check Ollama, API keys, Go toolchain
+daneel doctor --json            # machine-readable output
 ```
 
 ---

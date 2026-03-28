@@ -543,6 +543,7 @@ type agentConfig struct {
 	rateLimit          int // max tool calls per minute (0 = no limit)
 	tracer             Tracer
 	onConversationEnd  []func(ctx context.Context, result RunResult)
+	embedder           Embedder // optional embedder (e.g. for local AI stacks)
 }
 
 // WithInstructions sets the agent's system prompt.
@@ -557,6 +558,14 @@ func WithInstructions(instructions string) AgentOption {
 func WithProvider(p Provider) AgentOption {
 	return func(c *agentConfig) {
 		c.provider = p
+	}
+}
+
+// WithEmbedder sets the embedding engine for this agent. Useful when pairing
+// an LLM provider with a local embedding model (e.g. via WithLocalStack).
+func WithEmbedder(e Embedder) AgentOption {
+	return func(c *agentConfig) {
+		c.embedder = e
 	}
 }
 

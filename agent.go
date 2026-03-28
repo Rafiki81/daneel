@@ -49,6 +49,9 @@ func (a *Agent) Tools() []Tool { return a.config.tools }
 // convenience shortcuts that are resolved at Run time).
 func (a *Agent) Provider() Provider { return a.config.provider }
 
+// Embedder returns the agent's configured embedder (may be nil).
+func (a *Agent) Embedder() Embedder { return a.config.embedder }
+
 // clone returns a deep-enough copy of the agent for copy-on-modify.
 func (a *Agent) clone() *Agent {
 	cp := *a

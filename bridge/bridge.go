@@ -12,6 +12,19 @@ import (
 	"github.com/Rafiki81/daneel"
 )
 
+// BridgeMetrics is an optional observer for Bridge runtime events.
+// Implement this interface to integrate with Prometheus, OpenTelemetry,
+// Datadog, or any other metrics backend.
+type BridgeMetrics interface {
+	// RecordMessageProcessed is called after each message is handled.
+	// platform is e.g. "slack", "telegram". duration is total processing time.
+	RecordMessageProcessed(platform string, duration time.Duration, err error)
+	// RecordActiveConversations is called whenever the conversation map changes.
+	RecordActiveConversations(count int)
+	// RecordCleanup is called after each TTL sweep.
+	RecordCleanup(deletedSessions int)
+}
+
 // Bridge connects one or more Connectors to an Agent.
 type Bridge struct {
 	agent       *daneel.Agent
@@ -20,6 +33,7 @@ type Bridge struct {
 	historyTTL  time.Duration
 	maxHistory  int
 	errHandler  func(error, daneel.IncomingMessage)
+	metrics     BridgeMetrics
 	mu          sync.RWMutex
 	convos      map[string]*conversation
 }
@@ -60,6 +74,11 @@ func WithMaxHistory(n int) Option {
 // WithErrorHandler sets a handler for processing errors.
 func WithErrorHandler(fn func(error, daneel.IncomingMessage)) Option {
 	return func(b *Bridge) { b.errHandler = fn }
+}
+
+// WithMetrics attaches a BridgeMetrics observer to the Bridge.
+func WithMetrics(m BridgeMetrics) Option {
+	return func(b *Bridge) { b.metrics = m }
 }
 
 // New creates a new Bridge.
@@ -146,6 +165,7 @@ type connMsg struct {
 }
 
 func (b *Bridge) handleMessage(ctx context.Context, conn daneel.Connector, msg daneel.IncomingMessage) {
+	start := time.Now()
 	sessionID := daneel.DeterministicSessionID(msg.Platform, msg.From, msg.Channel)
 
 	// Get or create conversation
@@ -174,6 +194,9 @@ func (b *Bridge) handleMessage(ctx context.Context, conn daneel.Connector, msg d
 		daneel.WithSessionID(sessionID),
 		daneel.WithHistory(history),
 	)
+	if b.metrics != nil {
+		b.metrics.RecordMessageProcessed(msg.Platform, time.Since(start), err)
+	}
 	if err != nil {
 		b.errHandler(err, msg)
 		return
@@ -218,10 +241,16 @@ func (b *Bridge) cleanup() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	cutoff := time.Now().Add(-b.historyTTL)
+	deleted := 0
 	for id, convo := range b.convos {
 		if convo.lastSeen.Before(cutoff) {
 			delete(b.convos, id)
+			deleted++
 		}
+	}
+	if b.metrics != nil {
+		b.metrics.RecordCleanup(deleted)
+		b.metrics.RecordActiveConversations(len(b.convos))
 	}
 }
 

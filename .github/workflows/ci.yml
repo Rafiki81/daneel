@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ["1.24"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Verify no external dependencies
+        run: |
+          DEPS=$(go list -m all | tail -n +2 | grep -v "^github.com/Rafiki81/daneel" || true)
+          if [ -n "$DEPS" ]; then
+            echo "ERROR: unexpected external dependencies:"
+            echo "$DEPS"
+            exit 1
+          fi
+
+      - name: gofmt check
+        run: |
+          UNFORMATTED=$(gofmt -s -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "Run 'gofmt -s -w .' on these files:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Test with race detector
+        run: go test -race -timeout 120s ./...
+
+      - name: Coverage
+        run: go test -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  build-docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t daneel:ci .
