@@ -94,4 +94,3 @@ func TestOllama_Chat_cancelledContext(t *testing.T) {
 		t.Fatal("expected error for cancelled context, got nil")
 	}
 }
-

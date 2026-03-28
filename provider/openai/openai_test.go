@@ -98,4 +98,3 @@ func TestOpenAI_ModelInfo_unknownModel(t *testing.T) {
 	}
 	_ = info
 }
-

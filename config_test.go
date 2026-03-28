@@ -192,7 +192,7 @@ func TestRunStructured_MissingRequired_Retries(t *testing.T) {
 		Email string `json:"email"`
 	}
 	p := mock.New(
-		mock.Respond(`{"name":"Alice"}`),              // missing required "email"
+		mock.Respond(`{"name":"Alice"}`),               // missing required "email"
 		mock.Respond(`{"name":"Alice","email":"a@b"}`), // fixed
 	)
 	agent := daneel.New("a", daneel.WithProvider(p))
