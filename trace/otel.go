@@ -95,8 +95,8 @@ func (noopStarter) Start(ctx context.Context, name string) (context.Context, Spa
 type noopEnder struct{}
 
 func (noopEnder) SetAttribute(key string, value any) {}
-func (noopEnder) RecordError(err error)               {}
-func (noopEnder) End()                                 {}
+func (noopEnder) RecordError(err error)              {}
+func (noopEnder) End()                               {}
 
 // --- Convenience span helpers ---
 

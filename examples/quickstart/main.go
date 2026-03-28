@@ -28,10 +28,10 @@ func main() {
 		func(ctx context.Context, p WeatherParams) (string, error) {
 			// Simulated weather data
 			weather := map[string]string{
-				"madrid":    "☀️ 28°C, sunny",
-				"london":    "🌧️ 15°C, rainy",
-				"tokyo":     "⛅ 22°C, partly cloudy",
-				"new york":  "🌤️ 20°C, clear",
+				"madrid":       "☀️ 28°C, sunny",
+				"london":       "🌧️ 15°C, rainy",
+				"tokyo":        "⛅ 22°C, partly cloudy",
+				"new york":     "🌤️ 20°C, clear",
 				"buenos aires": "❄️ 8°C, cold",
 			}
 			city := strings.ToLower(p.City)

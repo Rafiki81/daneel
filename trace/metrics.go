@@ -22,22 +22,22 @@ func NewMetrics() *Metrics {
 // --- Standard metric names ---
 
 const (
-	MetricAgentRuns            = "daneel.agent.runs"
-	MetricAgentTurns           = "daneel.agent.turns"
-	MetricAgentDurationMs      = "daneel.agent.duration_ms"
-	MetricLLMRequests          = "daneel.llm.requests"
-	MetricLLMPromptTokens      = "daneel.llm.tokens.prompt"
-	MetricLLMCompletionTokens  = "daneel.llm.tokens.completion"
-	MetricLLMLatencyMs         = "daneel.llm.latency_ms"
-	MetricLLMErrors            = "daneel.llm.errors"
-	MetricToolExecutions       = "daneel.tool.executions"
-	MetricToolDurationMs       = "daneel.tool.duration_ms"
-	MetricPermissionDenials    = "daneel.permission.denials"
-	MetricGuardFailures        = "daneel.guard.failures"
-	MetricHandoffCount         = "daneel.handoff.count"
-	MetricCostUSD              = "daneel.cost.usd"
-	MetricBridgeMessages       = "daneel.bridge.messages"
-	MetricBridgeActiveConvos   = "daneel.bridge.active_conversations"
+	MetricAgentRuns           = "daneel.agent.runs"
+	MetricAgentTurns          = "daneel.agent.turns"
+	MetricAgentDurationMs     = "daneel.agent.duration_ms"
+	MetricLLMRequests         = "daneel.llm.requests"
+	MetricLLMPromptTokens     = "daneel.llm.tokens.prompt"
+	MetricLLMCompletionTokens = "daneel.llm.tokens.completion"
+	MetricLLMLatencyMs        = "daneel.llm.latency_ms"
+	MetricLLMErrors           = "daneel.llm.errors"
+	MetricToolExecutions      = "daneel.tool.executions"
+	MetricToolDurationMs      = "daneel.tool.duration_ms"
+	MetricPermissionDenials   = "daneel.permission.denials"
+	MetricGuardFailures       = "daneel.guard.failures"
+	MetricHandoffCount        = "daneel.handoff.count"
+	MetricCostUSD             = "daneel.cost.usd"
+	MetricBridgeMessages      = "daneel.bridge.messages"
+	MetricBridgeActiveConvos  = "daneel.bridge.active_conversations"
 )
 
 // --- Counters ---

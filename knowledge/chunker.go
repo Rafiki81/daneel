@@ -68,7 +68,7 @@ func (paragraph) Chunk(text string) []Chunk {
 // ─── Recursive ───────────────────────────────────────────────────────────────
 
 type recursive struct {
-	maxRunes    int
+	maxRunes     int
 	overlapRunes int
 }
 

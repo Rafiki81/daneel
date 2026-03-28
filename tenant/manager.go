@@ -24,7 +24,7 @@ type tenantEntry struct {
 
 // Manager manages tenant registration, quota enforcement, and usage tracking.
 type Manager struct {
-	entries sync.Map // tenantID → *tenantEntry
+	entries      sync.Map // tenantID → *tenantEntry
 	defaultQuota Quota
 }
 

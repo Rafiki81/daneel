@@ -122,7 +122,9 @@ func (c *Connector) fetchMyUserID(ctx context.Context) (string, error) {
 	}
 	defer resp.Body.Close()
 	var r struct {
-		Data struct{ ID string `json:"id"` } `json:"data"`
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
 		return "", err

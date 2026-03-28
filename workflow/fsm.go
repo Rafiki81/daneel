@@ -27,8 +27,8 @@ type FSM struct {
 // FSMResult is the outcome of a completed FSM run.
 type FSMResult struct {
 	FinalState string
-	Path       []string    // sequence of states visited
-	Output     string      // last agent output
+	Path       []string // sequence of states visited
+	Output     string   // last agent output
 	Duration   time.Duration
 }
 

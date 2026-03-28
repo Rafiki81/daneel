@@ -74,8 +74,8 @@ func loadURL(ctx context.Context, url string) (string, error) {
 }
 
 var (
-	reTag     = regexp.MustCompile(`<[^>]+>`)
-	reSpaces  = regexp.MustCompile(`[ \t]+`)
+	reTag      = regexp.MustCompile(`<[^>]+>`)
+	reSpaces   = regexp.MustCompile(`[ \t]+`)
 	reNewlines = regexp.MustCompile(`\n{3,}`)
 )
 

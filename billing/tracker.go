@@ -13,12 +13,12 @@ import (
 
 // Tracker records costs for every agent run and enforces per-tenant budgets.
 type Tracker struct {
-	mu       sync.RWMutex
-	pricing  *PricingTable
-	budgets  map[string]Budget   // tenantID → Budget
-	alerts   []Alert
-	fired    map[string]bool     // "tenantID:threshold" → already fired
-	records  []CostRecord
+	mu      sync.RWMutex
+	pricing *PricingTable
+	budgets map[string]Budget // tenantID → Budget
+	alerts  []Alert
+	fired   map[string]bool // "tenantID:threshold" → already fired
+	records []CostRecord
 }
 
 // TrackerOption configures a Tracker.

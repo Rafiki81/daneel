@@ -8,12 +8,12 @@ import (
 
 // Scheduler automatically triggers retraining when conditions are met.
 type Scheduler struct {
-	collector    *Collector
-	threshold    int
-	interval     time.Duration
-	baseConfig   Config
-	onComplete   func(Result)
-	onError      func(error)
+	collector  *Collector
+	threshold  int
+	interval   time.Duration
+	baseConfig Config
+	onComplete func(Result)
+	onError    func(error)
 }
 
 // SchedulerOption configures a Scheduler.

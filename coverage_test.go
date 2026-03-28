@@ -30,7 +30,9 @@ func TestRegistryEmpty(t *testing.T) {
 func TestRegistryRegisterAgent(t *testing.T) {
 	p := mock.New()
 	tool := daneel.NewTool("search", "Search",
-		func(ctx context.Context, p struct{ Q string `json:"q"` }) (string, error) {
+		func(ctx context.Context, p struct {
+			Q string `json:"q"`
+		}) (string, error) {
 			return p.Q, nil
 		},
 	)
@@ -553,7 +555,9 @@ func TestWithSessionID(t *testing.T) {
 
 func TestToolInvalidArgs(t *testing.T) {
 	tool := daneel.NewTool("test", "Test",
-		func(ctx context.Context, p struct{ X int `json:"x"` }) (string, error) {
+		func(ctx context.Context, p struct {
+			X int `json:"x"`
+		}) (string, error) {
 			return "", nil
 		},
 	)
@@ -566,8 +570,12 @@ func TestToolInvalidArgs(t *testing.T) {
 // ========== NewToolTyped invalid args ==========
 
 func TestNewToolTypedInvalidArgs(t *testing.T) {
-	type In struct{ X int `json:"x"` }
-	type Out struct{ R int `json:"r"` }
+	type In struct {
+		X int `json:"x"`
+	}
+	type Out struct {
+		R int `json:"r"`
+	}
 	tool := daneel.NewToolTyped[In, Out]("t", "T",
 		func(ctx context.Context, p In) (Out, error) { return Out{}, nil },
 	)
