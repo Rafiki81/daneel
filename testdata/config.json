@@ -1,0 +1,30 @@
+{
+  "provider": {
+    "type": "openai",
+    "api_key": "${TEST_OPENAI_KEY}",
+    "model": "gpt-4o"
+  },
+  "platforms": {
+    "slack": {
+      "bot_token": "${TEST_SLACK_TOKEN}"
+    },
+    "github": {
+      "token": "${TEST_GITHUB_TOKEN}"
+    }
+  },
+  "agents": [
+    {
+      "name": "support",
+      "instructions": "Handle customer support requests.",
+      "model": "gpt-4o-mini",
+      "max_turns": 15,
+      "deny_tools": ["github.merge_pr"]
+    },
+    {
+      "name": "coder",
+      "instructions": "Write and review code.",
+      "tools": ["github.comment"],
+      "max_turns": 10
+    }
+  ]
+}

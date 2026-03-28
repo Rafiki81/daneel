@@ -44,6 +44,10 @@ var (
 	// exceeds the model's context window and the ContextError strategy
 	// is in use.
 	ErrContextOverflow = errors.New("daneel: context window exceeded")
+
+	// ErrMaxHandoffDepth is returned when a chain of agent handoffs exceeds
+	// the depth configured with WithMaxHandoffDepth.
+	ErrMaxHandoffDepth = errors.New("daneel: maximum handoff depth exceeded")
 )
 
 // PermissionError provides context about a denied tool call.
@@ -114,5 +118,17 @@ type ToolTimeoutError struct {
 func (e *ToolTimeoutError) Error() string {
 	return fmt.Sprintf("daneel: tool %q execution timed out after %s", e.Tool, e.Timeout)
 }
+
+// HandoffDepthError provides context when a handoff chain exceeds its limit.
+type HandoffDepthError struct {
+	Agent    string // agent that attempted the next handoff
+	MaxDepth int    // the configured limit
+}
+
+func (e *HandoffDepthError) Error() string {
+	return fmt.Sprintf("daneel: agent %q handoff depth exceeded (max %d)", e.Agent, e.MaxDepth)
+}
+
+func (e *HandoffDepthError) Unwrap() error { return ErrMaxHandoffDepth }
 
 func (e *ToolTimeoutError) Unwrap() error { return ErrToolTimeout }

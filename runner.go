@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
+
+// handoffDepthKey is the context key used to track the current handoff depth.
+type handoffDepthKey struct{}
 
 // run executes the agent loop. This is the core of Daneel.
 //
@@ -33,6 +37,9 @@ func run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 	sessionID := cfg.sessionID
 	if sessionID == "" {
 		sessionID = NewSessionID()
+		if cfg.sessionPrefix != "" {
+			sessionID = cfg.sessionPrefix + sessionID
+		}
 	}
 
 	// Resolve provider
@@ -79,6 +86,16 @@ func run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 	var messages []Message
 	if systemPrompt != "" {
 		messages = append(messages, SystemMessage(systemPrompt))
+	}
+
+	// Auto-start session cleanup if the store supports it.
+	// The store's sync.Once ensures only one goroutine is launched regardless of
+	// how many Run calls share the same store instance.
+	type cleanupStarter interface {
+		StartCleanup(ctx context.Context, interval time.Duration)
+	}
+	if cs, ok := agent.config.sessionStore.(cleanupStarter); ok {
+		cs.StartCleanup(ctx, 5*time.Minute)
 	}
 
 	// Load history from memory if available
@@ -161,16 +178,19 @@ func run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 		}
 	}
 
+	// Compute context window limit once (avoids repeated ModelInfo look-ups per turn).
+	ctxLimit := contextWindow(ctx, provider, &agent.config)
+
 	// Agent loop
 	for turn := 0; turn < maxTurns; turn++ {
 		// Apply context window management
-		messages = truncateMessages(messages, agent.config.contextStrategy)
+		messages = manageContext(ctx, messages, agent.config.contextStrategy, ctxLimit, provider)
 
 		// Call LLM
 		chatCtx, chatSpan := tracer.StartSpan(ctx, "daneel.llm.chat",
 			Attr{Key: "turn", Value: turn},
 		)
-		resp, err := provider.Chat(chatCtx, messages, toolDefs)
+		resp, err := callProvider(chatCtx, provider, messages, toolDefs, cfg.streamFn)
 		if err != nil {
 			chatSpan.RecordError(err)
 			chatSpan.End()
@@ -268,6 +288,15 @@ func run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 			}
 		}
 
+		// Emit StreamToolCallStart for each pending tool call (fires for both
+		// streaming and non-streaming paths).
+		if cfg.streamFn != nil {
+			for i := range resp.ToolCalls {
+				tc := resp.ToolCalls[i]
+				cfg.streamFn(StreamChunk{Type: StreamToolCallStart, ToolCall: &tc})
+			}
+		}
+
 		// Execute tool calls
 		results := executeToolCalls(ctx, agent, &cfg, toolMap, resp.ToolCalls, sessionID)
 
@@ -277,6 +306,18 @@ func run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 			// Check for handoff
 			if tr.handoff != nil {
 				target := tr.handoff
+
+				// Enforce max handoff depth if configured.
+				if agent.config.maxHandoffDepth > 0 {
+					currentDepth, _ := ctx.Value(handoffDepthKey{}).(int)
+					if currentDepth >= agent.config.maxHandoffDepth {
+						return nil, &HandoffDepthError{
+							Agent:    agent.name,
+							MaxDepth: agent.config.maxHandoffDepth,
+						}
+					}
+					ctx = context.WithValue(ctx, handoffDepthKey{}, currentDepth+1)
+				}
 
 				// Inherit provider if target has none
 				targetAgent := target
@@ -338,6 +379,50 @@ func run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 	}
 }
 
+// callProvider calls the LLM, using ChatStream when streamFn is set and the
+// provider implements StreamProvider. Falls back to Chat for non-streaming
+// providers or when no stream callback is configured.
+func callProvider(ctx context.Context, p Provider, messages []Message, tools []ToolDef, streamFn func(StreamChunk)) (*Response, error) {
+	if streamFn != nil {
+		if sp, ok := p.(StreamProvider); ok {
+			return consumeStream(ctx, sp, messages, tools, streamFn)
+		}
+	}
+	return p.Chat(ctx, messages, tools)
+}
+
+// consumeStream reads from sp.ChatStream, emits StreamText chunks via streamFn
+// immediately as they arrive, and returns a complete Response once the channel
+// closes. Tool call chunks from the provider are accumulated but not forwarded
+// here — the runner emits StreamToolCallStart just before tool execution.
+func consumeStream(ctx context.Context, sp StreamProvider, messages []Message, tools []ToolDef, streamFn func(StreamChunk)) (*Response, error) {
+	ch, err := sp.ChatStream(ctx, messages, tools)
+	if err != nil {
+		return nil, err
+	}
+	var contentBuf strings.Builder
+	var toolCalls []ToolCall
+	for chunk := range ch {
+		switch chunk.Type {
+		case StreamText:
+			contentBuf.WriteString(chunk.Text)
+			streamFn(chunk)
+		case StreamToolCallStart:
+			// Accumulate complete tool calls assembled by the provider.
+			// The runner emits StreamToolCallStart to the user just before execution.
+			if chunk.ToolCall != nil {
+				toolCalls = append(toolCalls, *chunk.ToolCall)
+			}
+		case StreamError:
+			return nil, chunk.Error
+		}
+	}
+	return &Response{
+		Content:   contentBuf.String(),
+		ToolCalls: toolCalls,
+	}, nil
+}
+
 // toolCallResult is the internal result of a single tool execution.
 type toolCallResult struct {
 	record        ToolCallRecord
@@ -347,7 +432,7 @@ type toolCallResult struct {
 }
 
 // executeToolCalls runs all tool calls from a single LLM response,
-// respecting the configured concurrency mode.
+// respecting the configured concurrency mode and fail-fast policy.
 func executeToolCalls(
 	ctx context.Context,
 	agent *Agent,
@@ -367,18 +452,31 @@ func executeToolCalls(
 		return results
 	}
 
-	// Parallel execution
+	// Parallel execution — create a cancellable child context for FailFast.
+	execCtx := ctx
+	var cancelExec context.CancelFunc
+	if agent.config.failFast {
+		execCtx, cancelExec = context.WithCancel(ctx)
+		defer cancelExec()
+	}
+
 	results := make([]toolCallResult, len(calls))
 	var wg sync.WaitGroup
+
+	runOne := func(idx int, c ToolCall) {
+		defer wg.Done()
+		res := executeSingleTool(execCtx, agent, cfg, toolMap, c, sessionID)
+		results[idx] = res
+		if agent.config.failFast && res.record.IsError && cancelExec != nil {
+			cancelExec()
+		}
+	}
 
 	if p == 0 {
 		// Unlimited parallelism
 		for i, call := range calls {
 			wg.Add(1)
-			go func(idx int, c ToolCall) {
-				defer wg.Done()
-				results[idx] = executeSingleTool(ctx, agent, cfg, toolMap, c, sessionID)
-			}(i, call)
+			go runOne(i, call)
 		}
 	} else {
 		// Limited parallelism via semaphore
@@ -389,7 +487,11 @@ func executeToolCalls(
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				results[idx] = executeSingleTool(ctx, agent, cfg, toolMap, c, sessionID)
+				res := executeSingleTool(execCtx, agent, cfg, toolMap, c, sessionID)
+				results[idx] = res
+				if agent.config.failFast && res.record.IsError && cancelExec != nil {
+					cancelExec()
+				}
 			}(i, call)
 		}
 	}
@@ -575,54 +677,6 @@ func errorResult(call ToolCall, msg string, start time.Time) toolCallResult {
 			IsError:    true,
 		}.ToMessage(),
 	}
-}
-
-// truncateMessages applies context window management. For now,
-// implements the sliding window heuristic. Full implementations
-// of ContextSummarize and exact token counting will be in context_mgmt.go.
-func truncateMessages(msgs []Message, strategy ContextStrategy) []Message {
-	if strategy == ContextError {
-		return msgs // caller handles overflow via provider error
-	}
-
-	// Estimate tokens: ~4 chars per token for English
-	const maxTokens = 100_000 // conservative default
-	var totalChars int
-	for _, m := range msgs {
-		totalChars += len(m.Content)
-		for _, tc := range m.ToolCalls {
-			totalChars += len(tc.Arguments)
-		}
-	}
-
-	estimatedTokens := totalChars / 4
-	if estimatedTokens <= maxTokens {
-		return msgs // fits within window
-	}
-
-	// Sliding window: keep system prompt (first msg if system) + last N that fit
-	if len(msgs) < 3 {
-		return msgs
-	}
-
-	var preserved []Message
-	if msgs[0].Role == RoleSystem {
-		preserved = append(preserved, msgs[0])
-		msgs = msgs[1:]
-	}
-
-	// Keep removing oldest messages until we fit
-	for estimatedTokens > maxTokens && len(msgs) > 1 {
-		removed := msgs[0]
-		removedChars := len(removed.Content)
-		for _, tc := range removed.ToolCalls {
-			removedChars += len(tc.Arguments)
-		}
-		estimatedTokens -= removedChars / 4
-		msgs = msgs[1:]
-	}
-
-	return append(preserved, msgs...)
 }
 
 // fireOnConversationEnd invokes all registered conversation-end callbacks.

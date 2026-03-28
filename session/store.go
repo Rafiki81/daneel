@@ -30,6 +30,12 @@ type Store interface {
 	Delete(ctx context.Context, id string) error
 }
 
+// Cleanable is implemented by stores that support proactive background cleanup
+// of expired sessions.
+type Cleanable interface {
+	StartCleanup(ctx context.Context, interval time.Duration)
+}
+
 // sessionStoreAdapter bridges Store with daneel.SessionStore.
 type sessionStoreAdapter struct {
 	store     Store
@@ -68,4 +74,11 @@ func (a *sessionStoreAdapter) SaveMessages(ctx context.Context, sessionID string
 		},
 	}
 	return a.store.Save(ctx, sessionID, data)
+}
+
+// StartCleanup forwards to the underlying Store if it implements Cleanable.
+func (a *sessionStoreAdapter) StartCleanup(ctx context.Context, interval time.Duration) {
+	if c, ok := a.store.(Cleanable); ok {
+		c.StartCleanup(ctx, interval)
+	}
 }

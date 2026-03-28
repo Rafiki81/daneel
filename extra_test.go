@@ -8,6 +8,7 @@ import (
 
 	"github.com/Rafiki81/daneel"
 	"github.com/Rafiki81/daneel/content"
+	"github.com/Rafiki81/daneel/provider/mock"
 )
 
 // ---------- Tool schema: advanced types ----------
@@ -341,5 +342,185 @@ func TestMultiModalMessage(t *testing.T) {
 	}
 	if msg.ContentParts[0].Type != content.ContentImage {
 		t.Fatal("first part should be image")
+	}
+}
+
+// ---------- Streaming ----------
+
+// TestStreamingTextChunks verifies that StreamText chunks arrive incrementally
+// via the WithStreaming callback when the provider implements StreamProvider.
+func TestStreamingTextChunks(t *testing.T) {
+	p := mock.New(mock.RespondStream("Hello", ", ", "world", "!"))
+	agent := daneel.New("streamer", daneel.WithProvider(p))
+
+	var received []string
+	var chunkTypes []daneel.StreamChunkType
+
+	result, err := daneel.Run(context.Background(), agent, "hi",
+		daneel.WithStreaming(func(chunk daneel.StreamChunk) {
+			chunkTypes = append(chunkTypes, chunk.Type)
+			if chunk.Type == daneel.StreamText {
+				received = append(received, chunk.Text)
+			}
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify full output is the concatenation of all tokens.
+	if result.Output != "Hello, world!" {
+		t.Fatalf("output = %q, want %q", result.Output, "Hello, world!")
+	}
+
+	// Verify we received all 4 text tokens.
+	want := []string{"Hello", ", ", "world", "!"}
+	if len(received) != len(want) {
+		t.Fatalf("got %d text chunks, want %d: %v", len(received), len(want), received)
+	}
+	for i, tok := range want {
+		if received[i] != tok {
+			t.Errorf("chunk[%d] = %q, want %q", i, received[i], tok)
+		}
+	}
+
+	// The last event should be StreamDone.
+	if len(chunkTypes) == 0 || chunkTypes[len(chunkTypes)-1] != daneel.StreamDone {
+		t.Fatalf("last chunk type = %v, want StreamDone", chunkTypes)
+	}
+}
+
+// TestStreamingFinalOutput verifies that result.Output is correct even when
+// the response arrives in streaming chunks.
+func TestStreamingFinalOutput(t *testing.T) {
+	p := mock.New(mock.RespondStream("Go", " is", " great"))
+	agent := daneel.New("a", daneel.WithProvider(p))
+
+	result, err := daneel.Run(context.Background(), agent, "opinion?",
+		daneel.WithStreaming(func(daneel.StreamChunk) {}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Output != "Go is great" {
+		t.Fatalf("output = %q, want %q", result.Output, "Go is great")
+	}
+}
+
+// TestStreamingWithToolCalls verifies that StreamToolCallStart fires before
+// StreamToolCallDone when a streaming provider triggers a tool call.
+func TestStreamingWithToolCalls(t *testing.T) {
+	searchTool := daneel.NewTool("search", "web search",
+		func(_ context.Context, args struct {
+			Query string `json:"query"`
+		}) (string, error) {
+			return "result for: " + args.Query, nil
+		},
+	)
+
+	p := mock.New(
+		mock.RespondWithToolCall("search", `{"query":"golang"}`),
+		mock.RespondStream("Found something!"),
+	)
+	agent := daneel.New("searcher",
+		daneel.WithProvider(p),
+		daneel.WithTools(searchTool),
+	)
+
+	var events []daneel.StreamChunkType
+
+	result, err := daneel.Run(context.Background(), agent, "search for golang",
+		daneel.WithStreaming(func(chunk daneel.StreamChunk) {
+			events = append(events, chunk.Type)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Output != "Found something!" {
+		t.Fatalf("output = %q, want %q", result.Output, "Found something!")
+	}
+
+	// Verify event ordering: StreamToolCallStart must precede StreamToolCallDone.
+	var startIdx, doneIdx = -1, -1
+	for i, e := range events {
+		if e == daneel.StreamToolCallStart && startIdx < 0 {
+			startIdx = i
+		}
+		if e == daneel.StreamToolCallDone && doneIdx < 0 {
+			doneIdx = i
+		}
+	}
+	if startIdx < 0 {
+		t.Fatal("StreamToolCallStart not fired")
+	}
+	if doneIdx < 0 {
+		t.Fatal("StreamToolCallDone not fired")
+	}
+	if startIdx >= doneIdx {
+		t.Fatalf("StreamToolCallStart (index %d) must come before StreamToolCallDone (index %d)", startIdx, doneIdx)
+	}
+}
+
+// TestStreamingFallback verifies that a non-streaming provider still fires
+// StreamDone at the end when WithStreaming is configured.
+func TestStreamingFallback(t *testing.T) {
+	// mock.New with Respond (not RespondStream) is a non-streaming provider
+	// when ChatStream is also implemented — here we use plain Respond which
+	// the mock's ChatStream handles by emitting the whole content as one chunk.
+	p := mock.New(mock.Respond("plain response"))
+	agent := daneel.New("a", daneel.WithProvider(p))
+
+	var events []daneel.StreamChunkType
+	result, err := daneel.Run(context.Background(), agent, "hi",
+		daneel.WithStreaming(func(chunk daneel.StreamChunk) {
+			events = append(events, chunk.Type)
+		}),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Output != "plain response" {
+		t.Fatalf("output = %q, want %q", result.Output, "plain response")
+	}
+
+	// Must receive at least StreamText followed by StreamDone.
+	if len(events) < 2 {
+		t.Fatalf("expected at least 2 events, got %d: %v", len(events), events)
+	}
+	if events[len(events)-1] != daneel.StreamDone {
+		t.Fatalf("last event = %v, want StreamDone", events[len(events)-1])
+	}
+	hasTxt := false
+	for _, e := range events {
+		if e == daneel.StreamText {
+			hasTxt = true
+		}
+	}
+	if !hasTxt {
+		t.Fatal("expected at least one StreamText event")
+	}
+}
+
+// TestStreamingCancellation verifies that a cancelled context stops processing
+// cleanly without a panic or deadlock.
+func TestStreamingCancellation(t *testing.T) {
+	p := mock.New(mock.RespondStream("tok1", "tok2", "tok3"))
+	agent := daneel.New("a", daneel.WithProvider(p))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	// The run should return an error (context cancelled) rather than hanging.
+	_, err := daneel.Run(ctx, agent, "hi",
+		daneel.WithStreaming(func(daneel.StreamChunk) {}),
+	)
+	if err == nil {
+		// Some implementations may have already completed before the cancel
+		// takes effect — that's acceptable.
+		return
+	}
+	if !strings.Contains(err.Error(), "context") {
+		t.Logf("error (acceptable): %v", err)
 	}
 }

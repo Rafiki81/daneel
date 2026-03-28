@@ -26,6 +26,11 @@ func Run(ctx context.Context, agent *Agent, input string, opts ...RunOption) (*R
 //
 //	result, err := daneel.RunStructured[SentimentAnalysis](ctx, agent, "Review: Amazing!")
 //	fmt.Println(result.Data.Sentiment)
+//
+// After a successful parse, the result is validated against the JSON Schema
+// derived from T (required fields, enum constraints). If validation fails the
+// agent is called once more with a concise description of the violations so it
+// can self-correct.
 func RunStructured[T any](ctx context.Context, agent *Agent, input string, opts ...RunOption) (*StructuredResult[T], error) {
 	// Generate schema for T and add it to run options
 	schema := generateSchema[T]()
@@ -45,11 +50,91 @@ func RunStructured[T any](ctx context.Context, agent *Agent, input string, opts 
 		return nil, fmt.Errorf("daneel: failed to parse structured output: %w", err)
 	}
 
+	// Validate required fields and enum constraints against the schema.
+	if violations := validateSchemaConstraints([]byte(result.Output), schema); len(violations) > 0 {
+		retryInput := fmt.Sprintf(
+			"%s\n\n[Your previous JSON response had validation errors: %v. Please correct them.]",
+			input, violations,
+		)
+		retryResult, retryErr := Run(ctx, agent, retryInput, opts...)
+		if retryErr != nil {
+			return nil, fmt.Errorf("daneel: structured retry failed: %w (original violations: %v)", retryErr, violations)
+		}
+		var retryData T
+		if err := json.Unmarshal([]byte(retryResult.Output), &retryData); err != nil {
+			return nil, fmt.Errorf("daneel: retry parse failed: %w (original violations: %v)", err, violations)
+		}
+		return &StructuredResult[T]{
+			RunResult: *retryResult,
+			Data:      retryData,
+			Raw:       retryResult.Output,
+		}, nil
+	}
+
 	return &StructuredResult[T]{
 		RunResult: *result,
 		Data:      data,
 		Raw:       result.Output,
 	}, nil
+}
+
+// validateSchemaConstraints checks dataJSON against the JSON Schema constraints
+// (required fields and enum values).  Returns a list of violation messages, or
+// nil when the data is valid.
+func validateSchemaConstraints(dataJSON []byte, schema json.RawMessage) []string {
+	var s struct {
+		Properties map[string]struct {
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(schema, &s); err != nil {
+		return nil
+	}
+
+	var obj map[string]any
+	if err := json.Unmarshal(dataJSON, &obj); err != nil {
+		return nil
+	}
+
+	var violations []string
+
+	for _, req := range s.Required {
+		v, exists := obj[req]
+		if !exists || v == nil {
+			violations = append(violations, fmt.Sprintf("required field %q is missing", req))
+			continue
+		}
+		if sv, ok := v.(string); ok && sv == "" {
+			violations = append(violations, fmt.Sprintf("required field %q must not be empty", req))
+		}
+	}
+
+	for fname, fprop := range s.Properties {
+		if len(fprop.Enum) == 0 {
+			continue
+		}
+		v, ok := obj[fname]
+		if !ok {
+			continue
+		}
+		sv, ok := v.(string)
+		if !ok {
+			continue
+		}
+		valid := false
+		for _, e := range fprop.Enum {
+			if e == sv {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			violations = append(violations, fmt.Sprintf("field %q must be one of %v, got %q", fname, fprop.Enum, sv))
+		}
+	}
+
+	return violations
 }
 
 // resolveProvider ensures the agent has a provider. If the agent was configured

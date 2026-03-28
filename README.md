@@ -17,13 +17,17 @@ Zero external dependencies — just the Go standard library.
 | Category | Capabilities |
 |---|---|
 | **Core** | Typed tool definitions, permission policies, handoff between agents, session management |
-| **Providers** | OpenAI, Anthropic, Google Gemini, Ollama |
+| **Providers** | OpenAI, Anthropic, Google Gemini, Ollama — with **streaming** (`ChatStream`) and **circuit breaker** |
 | **Memory** | Sliding-window, summarisation, vector store, file-backed persistence |
-| **Multi-agent** | Chain, parallel, router, orchestrator, finite-state-machine workflows |
+| **Context** | Automatic context window management — sliding trim, summarize, error strategies (`WithMaxContextTokens`) |
+| **Multi-agent** | Chain, parallel, router, orchestrator, FSM workflows — **max handoff depth** protection |
 | **Platforms** | Slack, Telegram, Twitter/X, WhatsApp, GitHub, Email |
 | **Protocols** | Model Context Protocol (MCP) client & server, WebSocket connector |
 | **Observability** | OpenTelemetry tracing & metrics, fine-tune dataset collection |
-| **Operations** | Multi-tenant quotas, billing / cost tracking, budget alerts, cron scheduling |
+| **Operations** | Multi-tenant quotas (scoped sessions), billing / cost tracking, budget alerts, cron scheduling |
+| **Resiliencia** | Circuit breaker, fail-fast tool strategy (`WithFailFast`), composable run hooks |
+| **Config** | JSON config loading (`LoadConfig`), `${ENV}` expansion, `BuildAgents` / `BuildPlatforms` |
+| **Validation** | `RunStructured[T]` with JSON Schema validation (required, enum) and auto-retry |
 | **Human-in-loop** | Tool-call approval, A/B testing, LLM-as-judge evaluation |
 | **CLI** | `daneel` binary — run agents, listen on platforms, trigger fine-tuning |
 
@@ -115,17 +119,18 @@ func main() {
 ### Providers
 | Package | Description |
 |---|---|
-| `github.com/Rafiki81/daneel/provider/openai` | OpenAI (GPT-4o, o1, …) |
-| `github.com/Rafiki81/daneel/provider/anthropic` | Anthropic (Claude 3.x, …) |
-| `github.com/Rafiki81/daneel/provider/google` | Google Gemini |
-| `github.com/Rafiki81/daneel/provider/ollama` | Ollama (local models) |
+| `github.com/Rafiki81/daneel/provider` | Circuit breaker (`CircuitBreaker`), fallback, round-robin provider wrappers |
+| `github.com/Rafiki81/daneel/provider/openai` | OpenAI (GPT-4o, o1, …) — streaming support |
+| `github.com/Rafiki81/daneel/provider/anthropic` | Anthropic (Claude 3.x, …) — streaming support |
+| `github.com/Rafiki81/daneel/provider/google` | Google Gemini — streaming support |
+| `github.com/Rafiki81/daneel/provider/ollama` | Ollama (local models) — streaming support |
 
 ### Memory
 | Package | Description |
 |---|---|
 | `github.com/Rafiki81/daneel/memory` | Sliding-window + summary memory |
 | `github.com/Rafiki81/daneel/memory/store` | In-memory vector store |
-| `github.com/Rafiki81/daneel/session` | Persistent session store (memory, file) |
+| `github.com/Rafiki81/daneel/session` | Persistent session store (memory, file) with automatic cleanup |
 
 ### Workflows
 | Package | Description |

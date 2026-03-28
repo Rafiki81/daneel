@@ -8,13 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 // FileStore persists sessions as JSON files in a directory.
 type FileStore struct {
-	dir string
-	ttl time.Duration
+	dir         string
+	ttl         time.Duration
+	cleanupOnce sync.Once
 }
 
 // FileStoreOption configures a FileStore.
@@ -102,4 +104,50 @@ func (s *FileStore) Delete(_ context.Context, id string) error {
 		return nil
 	}
 	return err
+}
+
+// StartCleanup launches a background goroutine that periodically removes
+// expired sessions (those whose file modification time exceeds the TTL).
+// It is safe to call multiple times — only one goroutine is started.
+// The goroutine stops when ctx is cancelled.
+// StartCleanup is a no-op if no TTL was configured.
+func (s *FileStore) StartCleanup(ctx context.Context, interval time.Duration) {
+	if s.ttl <= 0 {
+		return
+	}
+	s.cleanupOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					_ = s.runCleanup()
+				case <-ctx.Done():
+					return
+				}
+			}
+		}()
+	})
+}
+
+// runCleanup removes session files that have exceeded the TTL.
+func (s *FileStore) runCleanup() error {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if time.Since(info.ModTime()) > s.ttl {
+			_ = os.Remove(filepath.Join(s.dir, e.Name()))
+		}
+	}
+	return nil
 }

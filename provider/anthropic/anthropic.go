@@ -11,6 +11,7 @@
 package anthropic
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -167,6 +168,7 @@ type messagesRequest struct {
 	MaxTokens   int              `json:"max_tokens"`
 	Temperature *float64         `json:"temperature,omitempty"`
 	Tools       []requestTool    `json:"tools,omitempty"`
+	Stream      bool             `json:"stream,omitempty"`
 }
 
 type requestMessage struct {
@@ -417,6 +419,7 @@ var AnthropicPricing = map[string]ModelCost{
 var (
 	_ daneel.Provider          = (*Provider)(nil)
 	_ daneel.ModelInfoProvider = (*Provider)(nil)
+	_ daneel.StreamProvider    = (*Provider)(nil)
 )
 
 // String returns a redacted representation for logging.
@@ -428,4 +431,186 @@ func (p *Provider) String() string {
 		key = "***"
 	}
 	return fmt.Sprintf("Anthropic{model: %s, key: %s}", p.cfg.model, key)
+}
+
+// ChatStream implements daneel.StreamProvider. It uses the Anthropic streaming
+// Messages API to emit text tokens as they arrive, then emits complete ToolCall
+// chunks after the full stream has been received.
+func (p *Provider) ChatStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef) (<-chan daneel.StreamChunk, error) {
+	ch := make(chan daneel.StreamChunk, 32)
+	go func() {
+		defer close(ch)
+		if err := p.doStream(ctx, messages, tools, ch); err != nil {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamError, Error: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	return ch, nil
+}
+
+func (p *Provider) doStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef, ch chan<- daneel.StreamChunk) error {
+	var systemPrompt string
+	var convMsgs []daneel.Message
+	for _, m := range messages {
+		if m.Role == daneel.RoleSystem {
+			if systemPrompt != "" {
+				systemPrompt += "\n\n"
+			}
+			systemPrompt += m.Content
+		} else {
+			convMsgs = append(convMsgs, m)
+		}
+	}
+
+	reqMsgs := convertMessages(convMsgs)
+
+	var reqTools []requestTool
+	for _, td := range tools {
+		reqTools = append(reqTools, requestTool{
+			Name: td.Name, Description: td.Description, InputSchema: td.Schema,
+		})
+	}
+
+	reqBody := messagesRequest{
+		Model:       p.cfg.model,
+		Messages:    reqMsgs,
+		System:      systemPrompt,
+		MaxTokens:   p.cfg.maxTokens,
+		Temperature: p.cfg.temperature,
+		Tools:       reqTools,
+		Stream:      true,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("anthropic: marshal stream: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.cfg.baseURL+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("anthropic: create stream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", p.cfg.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	if len(p.cfg.betaHeaders) > 0 {
+		req.Header.Set("anthropic-beta", strings.Join(p.cfg.betaHeaders, ","))
+	}
+
+	// Streaming responses have no fixed duration; rely on context for cancellation.
+	streamClient := &http.Client{Transport: p.client.Transport}
+	if streamClient.Transport == nil {
+		streamClient.Transport = http.DefaultTransport
+	}
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("anthropic: stream HTTP: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return &daneel.ProviderError{
+			Provider:   "anthropic",
+			StatusCode: resp.StatusCode,
+			Message:    string(b),
+			Retryable:  resp.StatusCode == 429 || resp.StatusCode >= 500,
+		}
+	}
+
+	// Track tool_use blocks by content block index.
+	type toolAccum struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	blocks := map[int]*toolAccum{}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+	var eventType string
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "event: ") {
+			eventType = strings.TrimPrefix(line, "event: ")
+			continue
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := line[6:]
+
+		switch eventType {
+		case "content_block_start":
+			var ev struct {
+				Index        int `json:"index"`
+				ContentBlock struct {
+					Type string `json:"type"`
+					ID   string `json:"id"`
+					Name string `json:"name"`
+				} `json:"content_block"`
+			}
+			if err := json.Unmarshal([]byte(data), &ev); err != nil {
+				continue
+			}
+			if ev.ContentBlock.Type == "tool_use" {
+				blocks[ev.Index] = &toolAccum{id: ev.ContentBlock.ID, name: ev.ContentBlock.Name}
+			}
+
+		case "content_block_delta":
+			var ev struct {
+				Index int `json:"index"`
+				Delta struct {
+					Type        string `json:"type"`
+					Text        string `json:"text"`
+					PartialJSON string `json:"partial_json"`
+				} `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(data), &ev); err != nil {
+				continue
+			}
+			switch ev.Delta.Type {
+			case "text_delta":
+				if ev.Delta.Text != "" {
+					select {
+					case ch <- daneel.StreamChunk{Type: daneel.StreamText, Text: ev.Delta.Text}:
+					case <-ctx.Done():
+						return ctx.Err()
+					}
+				}
+			case "input_json_delta":
+				if acc, ok := blocks[ev.Index]; ok {
+					acc.args.WriteString(ev.Delta.PartialJSON)
+				}
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("anthropic: stream scan: %w", err)
+	}
+
+	// Emit complete tool calls.
+	for _, acc := range blocks {
+		argsStr := acc.args.String()
+		if argsStr == "" {
+			argsStr = "{}"
+		}
+		select {
+		case ch <- daneel.StreamChunk{
+			Type: daneel.StreamToolCallStart,
+			ToolCall: &daneel.ToolCall{
+				ID:        acc.id,
+				Name:      acc.name,
+				Arguments: json.RawMessage(argsStr),
+			},
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return nil
 }

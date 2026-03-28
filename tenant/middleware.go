@@ -7,8 +7,9 @@ import (
 )
 
 // WithTenant returns a RunOption that:
-//  1. Checks all quotas for tenantID before the run starts.
-//  2. Records token usage for tenantID after a successful run.
+//  1. Scopes auto-generated session IDs with a "<tenantID>:" prefix.
+//  2. Checks all quotas for tenantID before the run starts.
+//  3. Records token usage for tenantID after a successful run.
 //
 // Example:
 //
@@ -16,14 +17,17 @@ import (
 //	    tenant.WithTenant(mgr, "acme-corp"),
 //	)
 func WithTenant(mgr *Manager, tenantID string) daneel.RunOption {
-	return daneel.WithRunHook(
-		// pre: quota check
-		func(ctx context.Context) error {
-			return mgr.checkQuota(ctx, tenantID)
-		},
-		// post: usage accounting
-		func(ctx context.Context, result *daneel.RunResult) {
-			mgr.recordUsage(tenantID, result.Usage)
-		},
+	return daneel.CombineRunOptions(
+		daneel.WithSessionPrefix(tenantID+":"),
+		daneel.WithRunHook(
+			// pre: quota check
+			func(ctx context.Context) error {
+				return mgr.checkQuota(ctx, tenantID)
+			},
+			// post: usage accounting
+			func(ctx context.Context, result *daneel.RunResult) {
+				mgr.recordUsage(tenantID, result.Usage)
+			},
+		),
 	)
 }

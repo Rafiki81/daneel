@@ -16,6 +16,7 @@
 package ollama
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -280,10 +281,157 @@ func (p *Provider) doChat(ctx context.Context, messages []daneel.Message, tools 
 	}, nil
 }
 
-// Compile-time interface check.
-var _ daneel.Provider = (*Provider)(nil)
+// Compile-time interface checks.
+var (
+	_ daneel.Provider       = (*Provider)(nil)
+	_ daneel.StreamProvider = (*Provider)(nil)
+)
 
 // String returns a representation for logging.
 func (p *Provider) String() string {
 	return fmt.Sprintf("Ollama{model: %s, base: %s}", p.cfg.model, p.cfg.baseURL)
+}
+
+// ChatStream implements daneel.StreamProvider. It uses Ollama's native
+// streaming API (NDJSON) to emit text tokens as they arrive, then emits
+// complete ToolCall chunks from the final done message.
+func (p *Provider) ChatStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef) (<-chan daneel.StreamChunk, error) {
+	ch := make(chan daneel.StreamChunk, 32)
+	go func() {
+		defer close(ch)
+		if err := p.doStreamChat(ctx, messages, tools, ch); err != nil {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamError, Error: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	return ch, nil
+}
+
+func (p *Provider) doStreamChat(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef, ch chan<- daneel.StreamChunk) error {
+	var ollamaMsgs []ollamaMessage
+	for _, m := range messages {
+		om := ollamaMessage{Role: string(m.Role), Content: m.Content}
+		if m.Role == daneel.RoleTool {
+			om.Role = "tool"
+		}
+		for _, tc := range m.ToolCalls {
+			om.ToolCalls = append(om.ToolCalls, ollamaToolCall{
+				Function: struct {
+					Name      string          `json:"name"`
+					Arguments json.RawMessage `json:"arguments"`
+				}{Name: tc.Name, Arguments: tc.Arguments},
+			})
+		}
+		ollamaMsgs = append(ollamaMsgs, om)
+	}
+
+	var ollamaTools []ollamaTool
+	for _, td := range tools {
+		ollamaTools = append(ollamaTools, ollamaTool{
+			Type: "function",
+			Function: ollamaFunction{
+				Name: td.Name, Description: td.Description, Parameters: td.Schema,
+			},
+		})
+	}
+
+	reqBody := chatRequest{
+		Model:    p.cfg.model,
+		Messages: ollamaMsgs,
+		Tools:    ollamaTools,
+		Stream:   true,
+	}
+	if p.cfg.numCtx > 0 {
+		reqBody.Options = &ollamaOptions{NumCtx: p.cfg.numCtx}
+	}
+	if p.cfg.keepAlive != nil {
+		ka := fmt.Sprintf("%ds", int(p.cfg.keepAlive.Seconds()))
+		reqBody.KeepAlive = &ka
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("ollama: marshal stream request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.cfg.baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("ollama: create stream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Streaming responses have no fixed duration; rely on context for cancellation.
+	streamClient := &http.Client{Transport: p.client.Transport}
+	if streamClient.Transport == nil {
+		streamClient.Transport = http.DefaultTransport
+	}
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("ollama: stream HTTP: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return &daneel.ProviderError{
+			Provider:   "ollama",
+			StatusCode: resp.StatusCode,
+			Message:    string(b),
+			Retryable:  resp.StatusCode >= 500,
+		}
+	}
+
+	// Accumulate tool calls (they arrive in NDJSON chunks).
+	var toolCalls []daneel.ToolCall
+	var tcIdx int
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var chunk chatResponse
+		if err := json.Unmarshal([]byte(line), &chunk); err != nil {
+			continue
+		}
+		if chunk.Error != "" {
+			return &daneel.ProviderError{Provider: "ollama", Message: chunk.Error}
+		}
+		if chunk.Message.Content != "" {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamText, Text: chunk.Message.Content}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+		for _, tc := range chunk.Message.ToolCalls {
+			toolCalls = append(toolCalls, daneel.ToolCall{
+				ID:        fmt.Sprintf("call_%d", tcIdx),
+				Name:      tc.Function.Name,
+				Arguments: tc.Function.Arguments,
+			})
+			tcIdx++
+		}
+		if chunk.Done {
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("ollama: stream scan: %w", err)
+	}
+
+	// Emit complete tool calls.
+	for i := range toolCalls {
+		select {
+		case ch <- daneel.StreamChunk{Type: daneel.StreamToolCallStart, ToolCall: &toolCalls[i]}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }

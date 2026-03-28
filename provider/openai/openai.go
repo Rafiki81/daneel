@@ -11,6 +11,7 @@
 package openai
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -20,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	daneel "github.com/Rafiki81/daneel"
@@ -28,14 +30,14 @@ import (
 // KnownModels maps model names to their capabilities. Looked up from
 // this built-in table — no network call needed.
 var KnownModels = map[string]daneel.ModelInfo{
-	"gpt-4o":      {ContextWindow: 128_000, MaxOutput: 16_384, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
-	"gpt-4o-mini": {ContextWindow: 128_000, MaxOutput: 16_384, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
-	"gpt-4-turbo": {ContextWindow: 128_000, MaxOutput: 4_096, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
-	"gpt-4":       {ContextWindow: 8_192, MaxOutput: 8_192, SupportsVision: false, SupportsTools: true, SupportsJSON: false},
+	"gpt-4o":        {ContextWindow: 128_000, MaxOutput: 16_384, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
+	"gpt-4o-mini":   {ContextWindow: 128_000, MaxOutput: 16_384, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
+	"gpt-4-turbo":   {ContextWindow: 128_000, MaxOutput: 4_096, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
+	"gpt-4":         {ContextWindow: 8_192, MaxOutput: 8_192, SupportsVision: false, SupportsTools: true, SupportsJSON: false},
 	"gpt-3.5-turbo": {ContextWindow: 16_385, MaxOutput: 4_096, SupportsVision: false, SupportsTools: true, SupportsJSON: true},
-	"o1":          {ContextWindow: 200_000, MaxOutput: 100_000, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
-	"o1-mini":     {ContextWindow: 128_000, MaxOutput: 65_536, SupportsVision: false, SupportsTools: true, SupportsJSON: true},
-	"o3-mini":     {ContextWindow: 200_000, MaxOutput: 100_000, SupportsVision: false, SupportsTools: true, SupportsJSON: true},
+	"o1":            {ContextWindow: 200_000, MaxOutput: 100_000, SupportsVision: true, SupportsTools: true, SupportsJSON: true},
+	"o1-mini":       {ContextWindow: 128_000, MaxOutput: 65_536, SupportsVision: false, SupportsTools: true, SupportsJSON: true},
+	"o3-mini":       {ContextWindow: 200_000, MaxOutput: 100_000, SupportsVision: false, SupportsTools: true, SupportsJSON: true},
 }
 
 // Option configures the OpenAI provider.
@@ -175,13 +177,14 @@ type chatRequest struct {
 	Tools       []requestTool    `json:"tools,omitempty"`
 	MaxTokens   int              `json:"max_tokens,omitempty"`
 	Temperature *float64         `json:"temperature,omitempty"`
+	Stream      bool             `json:"stream,omitempty"`
 }
 
 type requestMessage struct {
-	Role       string             `json:"role"`
-	Content    string             `json:"content"`
-	ToolCalls  []requestToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string             `json:"tool_call_id,omitempty"`
+	Role       string            `json:"role"`
+	Content    string            `json:"content"`
+	ToolCalls  []requestToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string            `json:"tool_call_id,omitempty"`
 }
 
 type requestTool struct {
@@ -208,9 +211,9 @@ type chatResponse struct {
 	ID      string `json:"id"`
 	Choices []struct {
 		Message struct {
-			Role      string             `json:"role"`
-			Content   string             `json:"content"`
-			ToolCalls []requestToolCall   `json:"tool_calls"`
+			Role      string            `json:"role"`
+			Content   string            `json:"content"`
+			ToolCalls []requestToolCall `json:"tool_calls"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -381,6 +384,209 @@ func (p *Provider) doChat(ctx context.Context, messages []daneel.Message, tools 
 	}, resp.StatusCode, nil
 }
 
+// --- Streaming response types ---
+
+type streamChunkResponse struct {
+	Choices []struct {
+		Delta        streamDelta `json:"delta"`
+		FinishReason string      `json:"finish_reason"`
+	} `json:"choices"`
+}
+
+type streamDelta struct {
+	Content   string            `json:"content"`
+	ToolCalls []streamToolDelta `json:"tool_calls"`
+}
+
+type streamToolDelta struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+// ChatStream implements daneel.StreamProvider. It uses the OpenAI streaming
+// API to emit text tokens as they arrive, then emits complete ToolCall chunks
+// once the full stream has been received.
+func (p *Provider) ChatStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef) (<-chan daneel.StreamChunk, error) {
+	ch := make(chan daneel.StreamChunk, 32)
+	go func() {
+		defer close(ch)
+		if err := p.doStream(ctx, messages, tools, ch); err != nil {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamError, Error: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	return ch, nil
+}
+
+func (p *Provider) doStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef, ch chan<- daneel.StreamChunk) error {
+	reqMsgs := make([]requestMessage, len(messages))
+	for i, m := range messages {
+		rm := requestMessage{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+		}
+		for _, tc := range m.ToolCalls {
+			rm.ToolCalls = append(rm.ToolCalls, requestToolCall{
+				ID:   tc.ID,
+				Type: "function",
+				Function: struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				}{
+					Name:      tc.Name,
+					Arguments: string(tc.Arguments),
+				},
+			})
+		}
+		reqMsgs[i] = rm
+	}
+
+	var reqTools []requestTool
+	for _, td := range tools {
+		reqTools = append(reqTools, requestTool{
+			Type: "function",
+			Function: requestFunction{
+				Name:        td.Name,
+				Description: td.Description,
+				Parameters:  td.Schema,
+			},
+		})
+	}
+
+	reqBody := chatRequest{
+		Model:       p.cfg.model,
+		Messages:    reqMsgs,
+		Tools:       reqTools,
+		MaxTokens:   p.cfg.maxTokens,
+		Temperature: p.cfg.temperature,
+		Stream:      true,
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("openai: marshal stream request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", p.cfg.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("openai: create stream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	if p.cfg.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.cfg.apiKey)
+	}
+	if p.cfg.organization != "" {
+		req.Header.Set("OpenAI-Organization", p.cfg.organization)
+	}
+
+	// Streaming responses have no fixed duration; rely on context for cancellation.
+	streamClient := &http.Client{Transport: p.client.Transport}
+	if streamClient.Transport == nil {
+		streamClient.Transport = http.DefaultTransport
+	}
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("openai: stream HTTP: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return &daneel.ProviderError{
+			Provider:   "openai",
+			StatusCode: resp.StatusCode,
+			Message:    string(b),
+			Retryable:  resp.StatusCode == 429 || resp.StatusCode >= 500,
+		}
+	}
+
+	// Accumulate tool call fragments by index.
+	type toolAccum struct {
+		id   string
+		name string
+		args strings.Builder
+	}
+	accumulated := map[int]*toolAccum{}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "data: [DONE]" {
+			break
+		}
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var chunk streamChunkResponse
+		if err := json.Unmarshal([]byte(line[6:]), &chunk); err != nil {
+			continue
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		delta := chunk.Choices[0].Delta
+
+		// Emit text token immediately.
+		if delta.Content != "" {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamText, Text: delta.Content}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		// Accumulate tool call fragments keyed by index.
+		for _, tc := range delta.ToolCalls {
+			if _, ok := accumulated[tc.Index]; !ok {
+				accumulated[tc.Index] = &toolAccum{}
+			}
+			acc := accumulated[tc.Index]
+			if tc.ID != "" {
+				acc.id = tc.ID
+			}
+			if tc.Function.Name != "" {
+				acc.name = tc.Function.Name
+			}
+			acc.args.WriteString(tc.Function.Arguments)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("openai: stream scan: %w", err)
+	}
+
+	// Emit complete tool calls in index order.
+	for i := 0; i < len(accumulated); i++ {
+		acc, ok := accumulated[i]
+		if !ok {
+			continue
+		}
+		select {
+		case ch <- daneel.StreamChunk{
+			Type: daneel.StreamToolCallStart,
+			ToolCall: &daneel.ToolCall{
+				ID:        acc.id,
+				Name:      acc.name,
+				Arguments: json.RawMessage(acc.args.String()),
+			},
+		}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 func (p *Provider) shouldRetry(statusCode int) bool {
 	if statusCode == 0 {
 		return false
@@ -414,13 +620,13 @@ type ModelCost struct {
 
 // OpenAIPricing contains known OpenAI model pricing.
 var OpenAIPricing = Pricing{
-	"gpt-4o":         {Input: 2.50, Output: 10.00},
-	"gpt-4o-mini":    {Input: 0.15, Output: 0.60},
-	"gpt-4-turbo":    {Input: 10.00, Output: 30.00},
-	"gpt-3.5-turbo":  {Input: 0.50, Output: 1.50},
-	"o1":             {Input: 15.00, Output: 60.00},
-	"o1-mini":        {Input: 3.00, Output: 12.00},
-	"o3-mini":        {Input: 1.10, Output: 4.40},
+	"gpt-4o":        {Input: 2.50, Output: 10.00},
+	"gpt-4o-mini":   {Input: 0.15, Output: 0.60},
+	"gpt-4-turbo":   {Input: 10.00, Output: 30.00},
+	"gpt-3.5-turbo": {Input: 0.50, Output: 1.50},
+	"o1":            {Input: 15.00, Output: 60.00},
+	"o1-mini":       {Input: 3.00, Output: 12.00},
+	"o3-mini":       {Input: 1.10, Output: 4.40},
 }
 
 // EstimatedCost calculates the estimated cost for the given usage.
@@ -450,7 +656,12 @@ func (p *Provider) String() string {
 	return fmt.Sprintf("OpenAI{model: %s, key: %s, base: %s}", p.cfg.model, key, p.cfg.baseURL)
 }
 
-// Compile-time check that Pricing.EstimatedCost uses the right signature
+// Compile-time interface checks.
+var (
+	_ daneel.Provider       = (*Provider)(nil)
+	_ daneel.StreamProvider = (*Provider)(nil)
+)
+
 func init() {
 	_ = strconv.Itoa // keep import alive
 }

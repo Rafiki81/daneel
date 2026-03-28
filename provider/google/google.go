@@ -11,6 +11,7 @@
 package google
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -430,6 +431,7 @@ var GeminiPricing = map[string]ModelCost{
 var (
 	_ daneel.Provider          = (*Provider)(nil)
 	_ daneel.ModelInfoProvider = (*Provider)(nil)
+	_ daneel.StreamProvider    = (*Provider)(nil)
 )
 
 // String returns a redacted representation for logging.
@@ -441,4 +443,182 @@ func (p *Provider) String() string {
 		key = "***"
 	}
 	return fmt.Sprintf("Google{model: %s, key: %s}", p.cfg.model, key)
+}
+
+// ChatStream implements daneel.StreamProvider. It uses the Gemini streaming
+// API (streamGenerateContent?alt=sse) to emit text tokens as they arrive,
+// then emits complete ToolCall chunks after the full stream is received.
+func (p *Provider) ChatStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef) (<-chan daneel.StreamChunk, error) {
+	ch := make(chan daneel.StreamChunk, 32)
+	go func() {
+		defer close(ch)
+		if err := p.doStream(ctx, messages, tools, ch); err != nil {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamError, Error: err}:
+			case <-ctx.Done():
+			}
+		}
+	}()
+	return ch, nil
+}
+
+func (p *Provider) doStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef, ch chan<- daneel.StreamChunk) error {
+	var sysParts []geminiPart
+	var contents []geminiContent
+
+	for _, m := range messages {
+		switch m.Role {
+		case daneel.RoleSystem:
+			sysParts = append(sysParts, geminiPart{Text: m.Content})
+		case daneel.RoleUser:
+			contents = append(contents, geminiContent{
+				Role: "user", Parts: []geminiPart{{Text: m.Content}},
+			})
+		case daneel.RoleAssistant:
+			var parts []geminiPart
+			if m.Content != "" {
+				parts = append(parts, geminiPart{Text: m.Content})
+			}
+			for _, tc := range m.ToolCalls {
+				parts = append(parts, geminiPart{
+					FunctionCall: &geminiFnCall{Name: tc.Name, Args: tc.Arguments},
+				})
+			}
+			if len(parts) == 0 {
+				parts = []geminiPart{{Text: ""}}
+			}
+			contents = append(contents, geminiContent{Role: "model", Parts: parts})
+		case daneel.RoleTool:
+			rd, _ := json.Marshal(map[string]string{"result": m.Content})
+			contents = append(contents, geminiContent{
+				Role: "user",
+				Parts: []geminiPart{{
+					FunctionResponse: &geminiFnResponse{Name: m.ToolCallID, Response: rd},
+				}},
+			})
+		}
+	}
+
+	contents = mergeContents(contents)
+
+	var gTools []geminiTool
+	if len(tools) > 0 {
+		var decls []geminiFnDecl
+		for _, td := range tools {
+			decls = append(decls, geminiFnDecl{
+				Name: td.Name, Description: td.Description, Parameters: td.Schema,
+			})
+		}
+		gTools = []geminiTool{{FunctionDeclarations: decls}}
+	}
+
+	reqBody := generateRequest{Contents: contents, Tools: gTools}
+	if len(sysParts) > 0 {
+		reqBody.SystemInstruction = &geminiContent{Parts: sysParts}
+	}
+	if p.cfg.maxTokens > 0 || p.cfg.temperature != nil {
+		reqBody.GenerationConfig = &generationConfig{
+			MaxOutputTokens: p.cfg.maxTokens, Temperature: p.cfg.temperature,
+		}
+	}
+	if p.cfg.safetySettings != "" {
+		for _, cat := range []string{
+			"HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH",
+			"HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT",
+		} {
+			reqBody.SafetySettings = append(reqBody.SafetySettings, safetySettingEntry{
+				Category: cat, Threshold: string(p.cfg.safetySettings),
+			})
+		}
+	}
+
+	body, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("google: marshal stream: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse&key=%s",
+		p.cfg.baseURL, p.cfg.model, p.cfg.apiKey)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("google: create stream request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	// Streaming responses have no fixed duration; rely on context for cancellation.
+	streamClient := &http.Client{Transport: p.client.Transport}
+	if streamClient.Transport == nil {
+		streamClient.Transport = http.DefaultTransport
+	}
+
+	resp, err := streamClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("google: stream HTTP: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		return &daneel.ProviderError{
+			Provider:   "google",
+			StatusCode: resp.StatusCode,
+			Message:    string(b),
+			Retryable:  resp.StatusCode == 429 || resp.StatusCode >= 500,
+		}
+	}
+
+	// Accumulate tool calls across all chunks (they may arrive in any chunk).
+	var toolCalls []daneel.ToolCall
+	var tcIdx int
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 1<<20), 1<<20)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var gr generateResponse
+		if err := json.Unmarshal([]byte(line[6:]), &gr); err != nil {
+			continue
+		}
+		if gr.Error != nil {
+			return &daneel.ProviderError{
+				Provider: "google", StatusCode: gr.Error.Code, Message: gr.Error.Message,
+			}
+		}
+		if len(gr.Candidates) == 0 {
+			continue
+		}
+		for _, part := range gr.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				select {
+				case ch <- daneel.StreamChunk{Type: daneel.StreamText, Text: part.Text}:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			if part.FunctionCall != nil {
+				toolCalls = append(toolCalls, daneel.ToolCall{
+					ID:        fmt.Sprintf("%s_%d", part.FunctionCall.Name, tcIdx),
+					Name:      part.FunctionCall.Name,
+					Arguments: part.FunctionCall.Args,
+				})
+				tcIdx++
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("google: stream scan: %w", err)
+	}
+
+	// Emit complete tool calls.
+	for i := range toolCalls {
+		select {
+		case ch <- daneel.StreamChunk{Type: daneel.StreamToolCallStart, ToolCall: &toolCalls[i]}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }

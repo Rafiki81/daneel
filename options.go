@@ -318,6 +318,7 @@ type RunOption func(*runConfig)
 // runConfig holds all configurable options for a Run() call.
 type runConfig struct {
 	sessionID      string
+	sessionPrefix  string // prepended to auto-generated session IDs
 	streamFn       func(StreamChunk)
 	approver       Approver
 	maxTurns       int // 0 = use agent default or 25
@@ -437,10 +438,57 @@ func WithImageData(data []byte, mimeType string) RunOption {
 // pre is called after options are resolved but before the agent loop starts;
 // return a non-nil error to abort the run. post is called with the RunResult
 // on success. Either argument may be nil.
+//
+// Multiple WithRunHook calls compose: each pre-hook runs in registration order
+// (stopping on the first error), and each post-hook runs in registration order.
 func WithRunHook(pre func(ctx context.Context) error, post func(ctx context.Context, result *RunResult)) RunOption {
 	return func(c *runConfig) {
-		c.preRunHook = pre
-		c.postRunHook = post
+		if pre != nil {
+			prev := c.preRunHook
+			if prev == nil {
+				c.preRunHook = pre
+			} else {
+				c.preRunHook = func(ctx context.Context) error {
+					if err := prev(ctx); err != nil {
+						return err
+					}
+					return pre(ctx)
+				}
+			}
+		}
+		if post != nil {
+			prev := c.postRunHook
+			if prev == nil {
+				c.postRunHook = post
+			} else {
+				c.postRunHook = func(ctx context.Context, result *RunResult) {
+					prev(ctx, result)
+					post(ctx, result)
+				}
+			}
+		}
+	}
+}
+
+// WithSessionPrefix sets a prefix that is prepended to auto-generated session
+// IDs. Useful for multi-tenant scenarios where you want session IDs scoped to
+// a tenant or namespace, e.g. "acme-corp:" produces "acme-corp:<uuid>".
+//
+// If WithSession is also provided the explicit ID is used as-is (no prefix).
+func WithSessionPrefix(prefix string) RunOption {
+	return func(c *runConfig) {
+		c.sessionPrefix = prefix
+	}
+}
+
+// CombineRunOptions merges multiple RunOptions into a single RunOption that
+// applies each in order. Useful for building composite options in sub-packages
+// that cannot directly construct runConfig literals.
+func CombineRunOptions(opts ...RunOption) RunOption {
+	return func(c *runConfig) {
+		for _, o := range opts {
+			o(c)
+		}
 	}
 }
 
@@ -485,10 +533,13 @@ type agentConfig struct {
 	sessionStore       SessionStore
 	contextFuncs       []func(ctx context.Context) (string, error)
 	contextStrategy    ContextStrategy
+	maxContextTokens   int // 0 means auto-detect from ModelInfoProvider or use default
 	toolExecution      ToolExecution
+	failFast           bool // cancel remaining parallel tools if one fails
 	defaultToolTimeout time.Duration
 	strictPermissions  bool
 	handoffHistory     HandoffHistory
+	maxHandoffDepth    int // 0 = unlimited (default)
 	rateLimit          int // max tool calls per minute (0 = no limit)
 	tracer             Tracer
 	onConversationEnd  []func(ctx context.Context, result RunResult)
@@ -591,6 +642,18 @@ func WithContextStrategy(s ContextStrategy) AgentOption {
 	}
 }
 
+// WithMaxContextTokens sets an explicit input-token limit for this agent.
+// When n > 0 it overrides any limit that could be inferred from the provider's
+// model info. Use this to cap context for cost or latency reasons.
+// A zero value (default) lets the framework auto-detect the limit.
+func WithMaxContextTokens(n int) AgentOption {
+	return func(c *agentConfig) {
+		if n > 0 {
+			c.maxContextTokens = n
+		}
+	}
+}
+
 // WithToolExecution sets tool call concurrency mode.
 func WithToolExecution(te ToolExecution) AgentOption {
 	return func(c *agentConfig) {
@@ -645,5 +708,29 @@ func WithTracing(t ...Tracer) AgentOption {
 func WithOnConversationEnd(fn func(ctx context.Context, result RunResult)) AgentOption {
 	return func(c *agentConfig) {
 		c.onConversationEnd = append(c.onConversationEnd, fn)
+	}
+}
+
+// WithMaxHandoffDepth limits how many consecutive handoffs can happen in a
+// single Run() call. When the depth is exceeded the run returns
+// ErrMaxHandoffDepth instead of delegating further.
+//
+// Default is 0 (unlimited). Set to a small positive integer (e.g. 5) in
+// production to prevent infinite handoff chains.
+func WithMaxHandoffDepth(n int) AgentOption {
+	return func(c *agentConfig) {
+		if n > 0 {
+			c.maxHandoffDepth = n
+		}
+	}
+}
+
+// WithFailFast makes parallel tool execution abort remaining tools as soon as
+// one tool returns an error. The cancelled tools receive a context-cancellation
+// and their results are discarded; the run continues with the results of tools
+// that completed before the failure.
+func WithFailFast() AgentOption {
+	return func(c *agentConfig) {
+		c.failFast = true
 	}
 }

@@ -20,12 +20,14 @@ import (
 )
 
 // Provider is a mock LLM provider that returns pre-configured responses.
-// It implements daneel.Provider and tracks all calls made to it.
+// It implements daneel.Provider and daneel.StreamProvider, and tracks all
+// calls made to it.
 type Provider struct {
-	mu        sync.Mutex
-	responses []responseFunc
-	index     int
-	calls     []Call
+	mu           sync.Mutex
+	responses    []responseFunc
+	index        int
+	calls        []Call
+	streamTokens map[int][]string // response-index → token chunks for ChatStream
 }
 
 // Call records a single invocation of Chat.
@@ -103,20 +105,7 @@ func ErrorResponse(msg string) *daneel.Response {
 func (p *Provider) Chat(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef) (*daneel.Response, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	// Record the call
-	p.calls = append(p.calls, Call{
-		Messages: append([]daneel.Message(nil), messages...),
-		Tools:    append([]daneel.ToolDef(nil), tools...),
-	})
-
-	if p.index >= len(p.responses) {
-		return nil, fmt.Errorf("mock provider: no more responses (got %d calls, have %d responses)", p.index+1, len(p.responses))
-	}
-
-	fn := p.responses[p.index]
-	p.index++
-	return fn(messages), nil
+	return p.chatLocked(messages, tools)
 }
 
 // --- Introspection methods ---
@@ -141,6 +130,7 @@ func (p *Provider) Reset() {
 	defer p.mu.Unlock()
 	p.calls = nil
 	p.index = 0
+	p.streamTokens = nil
 }
 
 // --- Queue methods for test helpers ---
@@ -210,3 +200,90 @@ func (p *Provider) LastMessages() []daneel.Message {
 	}
 	return p.calls[len(p.calls)-1].Messages
 }
+
+// RespondStream queues a streaming response that emits each token as a separate
+// StreamText chunk. The overall response text is the concatenation of all tokens.
+func RespondStream(tokens ...string) Option {
+	return func(p *Provider) {
+		idx := len(p.responses) // this response will have this queue index
+		p.responses = append(p.responses, func(_ []daneel.Message) *daneel.Response {
+			combined := ""
+			for _, t := range tokens {
+				combined += t
+			}
+			return &daneel.Response{
+				Content: combined,
+				Usage:   daneel.Usage{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15},
+			}
+		})
+		if p.streamTokens == nil {
+			p.streamTokens = make(map[int][]string)
+		}
+		p.streamTokens[idx] = tokens
+	}
+}
+
+// ChatStream implements daneel.StreamProvider. It emits queued streaming tokens
+// via the channel in the same order as the queued Chat responses.
+func (p *Provider) ChatStream(ctx context.Context, messages []daneel.Message, tools []daneel.ToolDef) (<-chan daneel.StreamChunk, error) {
+	p.mu.Lock()
+	idx := p.index
+	resp, chatErr := p.chatLocked(messages, tools)
+	tokens := p.streamTokens[idx]
+	p.mu.Unlock()
+
+	if chatErr != nil {
+		return nil, chatErr
+	}
+
+	ch := make(chan daneel.StreamChunk, 32)
+	go func() {
+		defer close(ch)
+		if len(tokens) > 0 {
+			// Emit each token as a separate StreamText chunk.
+			for _, tok := range tokens {
+				select {
+				case ch <- daneel.StreamChunk{Type: daneel.StreamText, Text: tok}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		} else if resp.Content != "" {
+			// Fall back: emit entire content as a single text chunk.
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamText, Text: resp.Content}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		// Emit any tool calls.
+		for i := range resp.ToolCalls {
+			select {
+			case ch <- daneel.StreamChunk{Type: daneel.StreamToolCallStart, ToolCall: &resp.ToolCalls[i]}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return ch, nil
+}
+
+// chatLocked is the inner body of Chat, called with mu already held.
+func (p *Provider) chatLocked(messages []daneel.Message, tools []daneel.ToolDef) (*daneel.Response, error) {
+	p.calls = append(p.calls, Call{
+		Messages: append([]daneel.Message(nil), messages...),
+		Tools:    append([]daneel.ToolDef(nil), tools...),
+	})
+	if p.index >= len(p.responses) {
+		return nil, fmt.Errorf("mock provider: no more responses (got %d calls, have %d responses)", p.index+1, len(p.responses))
+	}
+	fn := p.responses[p.index]
+	p.index++
+	return fn(messages), nil
+}
+
+// Compile-time interface checks.
+var (
+	_ daneel.Provider       = (*Provider)(nil)
+	_ daneel.StreamProvider = (*Provider)(nil)
+)
